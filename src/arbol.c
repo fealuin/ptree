@@ -1,13 +1,13 @@
+#include <stdlib.h>
 #include <stdio.h>
-#include "arbol.h"
 #include <string.h>
+#include <unistd.h>
 
 typedef struct			//estructura de matriz contiene nro de filas columnas, y puntero doble
 {
   int n;
   int **m;
   int inicial;
-  int *orden;
 } matriz;
 
 typedef struct
@@ -32,30 +32,24 @@ cargaMatrizCeros (matriz m)	//llena de ceros una matriz
 }
 
 matriz
-creaMatriz (int n)		//inicializa una matriz de f filas y c columnas, con cada elemento en 0
+creaMatriz (int n)		//inicializa una matriz de n filas y n columnas, con cada elemento en 0
 {
-//  printf ("creando matriz de %d filas y columnas\n", n);
   int i, j;
   matriz m;
   m.n = n;
   m.m = (int **) malloc (m.n * sizeof (int *));
-  m.orden = (int *) malloc (m.n * sizeof (int));
-
 
   for (i = 0; i < m.n; i++)
     {
       m.m[i] = (int *) malloc (m.n * sizeof (int));
     }
- // printf ("antes de cargar ceros\n");
   cargaMatrizCeros (m);
- // printf ("matriz creada\n");
   return m;
 }
 
 int
-getMax (char archivo[20])
+getMax (char archivo[20])	//selecciona el id de proceso mayor presente en el archivo
 {
-
   FILE *fp;
   fp = fopen (archivo, "r");
   char line[1000];
@@ -63,12 +57,14 @@ getMax (char archivo[20])
   res = NULL;
   int max = 0;
   char delim[2] = " ";
+
   if (!fp)
     {
-   //   printf ("No se encuentra archivo [%s], no se cargan datos\n", archivo);
-
-      return 0;
+      printf ("No se encuentra archivo \"%s\", no se cargan datos\n",
+	      archivo);
+      exit (1);
     }
+
   while (fgets (line, sizeof (line), fp))
     {
       res = strtok (line, delim);
@@ -84,24 +80,10 @@ getMax (char archivo[20])
   return max;
 }
 
-/*
-getOrder(matriz M){
-int i;
-	for (i = 0; i < M.n; ++i)
-	{
-		matriz.orden[i]=-1;
-	}
-
-
-}
-*/
-
 matriz
 leeMatriz (char archivo[20])	//lee matriz desde archivo separado por espacios
 {
- // printf ("iniciandooo\n");
   matriz m = creaMatriz (getMax (archivo) + 1);
- // printf ("creando matriz\n");
   FILE *fp;
   fp = fopen (archivo, "r");
   char line[1000];
@@ -110,6 +92,7 @@ leeMatriz (char archivo[20])	//lee matriz desde archivo separado por espacios
   char delim[2] = " ";
   int i, nline = 0, count = 0;
   int n;
+
   if (!fp)
     {
       printf ("No se encuentra archivo [%s], no se cargan datos\n", archivo);
@@ -117,31 +100,24 @@ leeMatriz (char archivo[20])	//lee matriz desde archivo separado por espacios
       return creaMatriz (0);
     }
 
-
   while (fgets (line, sizeof (line), fp))
     {
-   //   printf ("%s\n", line);
       res = strtok (line, delim);
-    //  printf ("%s\n", res);
       nline = atoi (res);
       if (count == 0)
 	{
 	  m.inicial = nline;
 	}
-     // printf ("nline %d\n", nline);
       res = strtok (NULL, delim);
 
-     // printf ("nro de id:%d\n", nline);
       while (res != NULL)
 	{
-	  // printf ("leyendo linea %d\n", nline);
+
 	  m.m[nline][atoi (res)] = 1;
 	  res = strtok (NULL, delim);
 	}
       count++;
     }
-
-
   fclose (fp);
   return m;
 }
@@ -151,6 +127,7 @@ void
 imprimir (matriz m)		//imprime matriz por pantalla
 {
   int i, j;
+
   for (i = 0; i < m.n; i++)
     {
       for (j = 0; j < m.n; j++)
@@ -158,104 +135,109 @@ imprimir (matriz m)		//imprime matriz por pantalla
 	  printf ("%10d ", (int) m.m[i][j]);
 	}
       printf ("\n");
-
     }
   printf ("\n");
 }
 
 proc
-creaProc (proc new, int id, int padre)
+creaProc (proc new, int id, int padre)	//crea un proceso hijo + pipe desde el proceso padre
 {
-
-  if (padre == new.id && new.id != id)
+  if (padre == new.id && new.id != id)	//Si el proceso no es el que buscamos no hace nada
     {
-
-
       pipe (new.pipePH);
       new.hpid = fork ();
       new.pid = getpid ();
-     // printf ("%d\n", new.hpid);
 
-      if (new.hpid > 0)
+      if (new.hpid > 0)		//Si es el padre cierra pipe lectura y escribe acumulación de pids
 	{
 	  close (new.pipePH[0]);
 	  write (new.pipePH[1], &new.acPid, sizeof (new.acPid));
 	  return new;
 	}
-
-
-      if (new.hpid == 0)
+      if (new.hpid == 0)	//Si es hijo actualiza id, cierre pipe de escritura y lee acumulación de pids desde el padre
 	{
-	 // printf ("entrando a condicion hijo, id %d\n", id);
 	  new.id = id;
 	  close (new.pipePH[1]);
-	  read (new.pipePH, &new.acPid, sizeof (new.acPid));
+	  read (new.pipePH[0], &new.acPid, sizeof (new.acPid));
 	  new.acPid = new.acPid + getpid ();
 	  return new;
 	}
-
-
     }
   else
     return new;
 }
 
-void
-creaProcFila (proc inicial, matriz M, int fila)
-{
-  int i;
-  for (i = 0; i < M.n; i++)
-    {
-      if (M.m[fila][i] == 1)
-	{
-	  inicial = creaProc (inicial, i, fila);
-	  //printf ("Procesando fila %d columna %d\n", fila, i);
-	}
-    }
-}
-
-
 
 int
-main ()
+creaArbol (char *nArchivo)	//Crea arbol de procesos a partir de un archivo de texto
 {
   int i, j;
-  //printf ("Numero %d\n", N);
-  matriz M = leeMatriz ("../build/pt");
-  //imprimir (M);
-  //printf ("%d\n", M.inicial);
+  matriz M = leeMatriz (nArchivo);
+  proc proceso;
+  proceso.id = M.inicial;
+  proceso.acPid = getpid ();
 
-
-  proc uno;
-
-  uno.id = M.inicial;
-  uno.acPid = getpid ();
-
-  //printf ("hola, soy el proceso inical %d id %d pid %d y mi padre es %d\n",getpid (), uno.id, uno.pid, getppid ());
-
-/*
-uno=creaProc(uno,2,1);
-uno=creaProc(uno,3,2);
-uno=creaProc(uno,4,2);
-uno=creaProc(uno,5,2);
-uno=creaProc(uno,6,1);
-*/
   for (i = 0; i < M.n; i++)
     {
       for (j = 0; j < M.n; j++)
 	{
 	  if (M.m[i][j] == 1)
 	    {
-	      uno = creaProc (uno, j, i);
-//	      printf ("Procesando fila %d columna %d\n", i, j);
+	      proceso = creaProc (proceso, j, i);
 	    }
 	}
     }
 
   wait (0);
 
- // printf("hola, soy el proceso %d id %d pid %d, mi padre es %d y la suma de pids es: %d\n", getpid (), uno.id, uno.pid, getppid (), uno.acPid);
-  printf("Proceso %4d. PID: %5d Suma de PIDs: %10d\n", uno.id,getpid(),uno.acPid);
+  printf ("Proceso %4d. PID: %5d Suma de PIDs: %10d\n", proceso.id, getpid (),
+	  proceso.acPid);
+}
 
+void
+modoDeUso ()
+{
+  printf ("Modo de uso:\n");
+  printf ("arbol -f [nombre de archivo]\n");
+}
 
+int
+main (int argc, char *argv[])
+{
+  int c;
+
+  while ((c = getopt (argc, argv, "f:")) != -1)
+    {
+      switch (c)
+	{
+	case 'f':
+	  creaArbol (optarg);
+	  return 0;
+
+	case '?':
+	  if (optopt == 'f')
+	    {
+	      fprintf (stderr, "La opcion -%c requiere un argumento.\n",
+		       optopt);
+	      break;
+	    }
+	  else if (isprint (optopt))
+	    {
+	      fprintf (stderr, "Opcion desconocida `-%c'.\n", optopt);
+	      break;
+	    }
+	  else
+	    {
+	      fprintf (stderr, "La opcion `\\x%x'. no existe\n", optopt);
+	      break;
+	    }
+	  modoDeUso ();
+	  return 1;
+	default:
+	  modoDeUso ();
+
+	  exit (1);
+	}
+    }
+  modoDeUso ();
 }
